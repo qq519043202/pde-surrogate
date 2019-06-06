@@ -17,7 +17,8 @@ def load_args(run_dir):
 
 def load_data(hdf5_file, ndata, batch_size, only_input=True, return_stats=False):
     with h5py.File(hdf5_file, 'r') as f:
-        x_data = f['input'][:ndata]
+        # x_data = f['input'][:ndata]
+        x_data = f['input'][:ndata,:,:20,:40]
         print(f'x_data: {x_data.shape}')    
         if not only_input:
             y_data = f['output'][:ndata]

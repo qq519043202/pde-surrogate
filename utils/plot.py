@@ -263,14 +263,14 @@ def save_stats(save_dir, logger, *metrics):
         metric_list = logger[metric]
         np.savetxt(save_dir + f'/{metric}.txt', metric_list)
         # plot stats
-        metric_arr = np.loadtxt(save_dir + f'/{metric}.txt')
-        if len(metric_arr.shape) == 1:
-            metric_arr = metric_arr[:, None]
-        lines = plt.plot(range(1, len(metric_arr)+1), metric_arr)
-        labels = [f'{metric_arr[-5:, i].mean():.4f}' for i in range(metric_arr.shape[-1])]
-        plt.legend(lines, labels)
-        plt.savefig(save_dir + f'/{metric}.pdf')
-        plt.close()
+        # metric_arr = np.loadtxt(save_dir + f'/{metric}.txt')
+        # if len(metric_arr.shape) == 1:
+        #     metric_arr = metric_arr[:, None]
+        # lines = plt.plot(range(1, len(metric_arr)+1), metric_arr)
+        # labels = [f'{metric_arr[-5:, i].mean():.4f}' for i in range(metric_arr.shape[-1])]
+        # plt.legend(lines, labels)
+        # plt.savefig(save_dir + f'/{metric}.pdf')
+        # plt.close()
 
 
 def plot_prediction_bayes(save_dir, target, pred_mean, pred_var, epoch, index, 

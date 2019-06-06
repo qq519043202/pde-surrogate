@@ -5,8 +5,10 @@ primal/mixed + fc/conv + variational/residual
 """
 import torch
 import torch.autograd as ag
+import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+
 plt.switch_backend('agg')
 
 
@@ -159,6 +161,46 @@ def energy_functional_exp(input, output, sobel_filter):
     return (0.5 * torch.exp(input * output) * (grad_h ** 2 + grad_v ** 2)).mean()
 
 
+def cc1(input, output, output_post, sobel_filter, device):
+    E = 1.0
+    nu = 0.3
+    # C0np = np.array()
+    C0 = E/(1-nu**2)*torch.Tensor([[1,nu,0],[nu,1,0],[0,0,(1-nu)/2]]).to(device)
+    pp = input.view(input.shape[0], -1, 1, 1).to(device)
+    C = pp*C0
+
+    # duxdx = sobel_filter.grad_h(output[:, [0]])
+    # duxdy = sobel_filter.grad_v(output[:, [0]])
+    # duydx = sobel_filter.grad_h(output[:, [1]])
+    # duydy = sobel_filter.grad_v(output[:, [1]])
+    # d1 = duxdx
+    # d2 = duydy
+    # d3 = duxdy+duydx
+    # du = torch.cat([d1,d2,d3],1)
+    # du_post = du.view(du.shape[0],3,-1,1).permute(0,2,1,3)
+    B0 = torch.Tensor([[-0.5,0,-0.5],[0,-0.5,-0.5],[0.5,0,-0.5],\
+        [0,-0.5,0.5],[0.5,0,0.5] ,[0,0.5,0.5],[-0.5,0,0.5],[0,-0.5,-0.5]]).to(device)
+    B0T = B0.transpose(0,1)
+    ux = output[:,[0]]
+    uy = output[:,[1]]
+    unfold = nn.Unfold(kernel_size=(2, 2))
+    # [bs, 4, w*h]
+    uex = unfold(ux)
+    uey = unfold(uy)
+    ue_not = torch.cat([uex, uey], 1).permute([0,2,1])
+    ue = ue_not[:,:,[0,4,2,6,3,7,1,5]].unsqueeze(3)
+
+
+    sig = output_post[:, [2,3,4]]
+    sig_post = sig.view(sig.shape[0],3,-1,1).permute(0,2,1,3)
+
+    # lp1 = torch.matmul(C,du_post) - sig_post
+    lp1 = torch.matmul(C,torch.matmul(B0T,ue)) - sig_post
+    # ???
+    return (lp1**2).mean()
+
+
+# !!!!!!!!!!!!
 def conv_constitutive_constraint(input, output, sobel_filter):
     """sigma = - K * grad(u)
 
@@ -207,6 +249,20 @@ def conv_constitutive_constraint_nonlinear_exp(input, output, sobel_filter):
     return ((output[:, [1]] - sigma_h) ** 2 
         + (output[:, [2]] - sigma_v) ** 2).mean()
 
+
+# !!!!!!!!!!!!
+def cc2(output, sobel_filter):
+    dsxdx = sobel_filter.grad_h(output[:, [2]])
+    dsydy = sobel_filter.grad_v(output[:, [3]])
+    dsxydx = sobel_filter.grad_h(output[:, [4]])
+    dsxydy = sobel_filter.grad_v(output[:, [4]])
+
+    ds = torch.cat([dsxdx+dsxydy, dsydy+dsxydx],1)
+    
+    return (ds ** 2).mean()
+
+
+# !!!!!!!!!!!!
 def conv_continuity_constraint(output, sobel_filter, use_tb=True):
     """
     div(sigma) = -f
@@ -223,6 +279,16 @@ def conv_continuity_constraint(output, sobel_filter, use_tb=True):
     else:
         return ((sigma1_x1 + sigma2_x2) ** 2)[:, :, 1:-1, :].mean()
 
+def bc(output_post):
+    sx = output_post[:, [2]]
+    sy = output_post[:, [3]]
+    sxy = output_post[:, [4]]
+    lbr = (sx[:,:,:,39]-1)**2 + (sxy[:,:,:,39])**2
+    lbt = (sy[:,:,0,:])**2 + (sxy[:,:,0,:])**2
+    lbb = (sy[:,:,19,:])**2 + (sxy[:,:,19,:])**2
+    return torch.cat([lbb,lbt,lbr],2).mean()
+
+# !!!!!!!!!!!!
 def conv_boundary_condition(output):
     left_bound, right_bound = output[:, 0, :, 0], output[:, 0, :, -1]
     top_down_flux = output[:, 2, [0, -1], :]

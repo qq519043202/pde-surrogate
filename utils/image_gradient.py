@@ -57,7 +57,7 @@ class SobelFilter(object):
             replicate_pad (None, int, 4-tuple): if 4-tuple, (padLeft, padRight, padTop, 
                 padBottom)
         """
-        image_width = image.shape[-1]
+        # image_width = image.shape[-1]
 
         if filter_size == 3:
             replicate_pad = 1
@@ -65,8 +65,9 @@ class SobelFilter(object):
         elif filter_size == 5:
             replicate_pad = 2
             kernel = self.VSOBEL_WEIGHTS_5x5
-        image = F.pad(image, _quadruple(replicate_pad), mode='replicate')
-        grad = F.conv2d(image, kernel, stride=1, padding=0, bias=None) * image_width
+        # image = F.pad(image, _quadruple(replicate_pad), mode='replicate')
+        grad = F.conv2d(image, kernel, stride=1, padding=1, bias=None)
+         # * image_width
         # modify the boundary based on forward & backward finite difference (three points)
         # forward [-3, 4, -1], backward [3, -4, 1]
         if self.correct:
@@ -75,16 +76,17 @@ class SobelFilter(object):
             return grad
 
     def grad_v(self, image, filter_size=3):
-        image_height = image.shape[-2]
+        # image_height = image.shape[-2]
         if filter_size == 3:
             replicate_pad = 1
             kernel = self.HSOBEL_WEIGHTS_3x3
         elif filter_size == 5:
             replicate_pad = 2
             kernel = self.HSOBEL_WEIGHTS_5x5
-        image = F.pad(image, _quadruple(replicate_pad), mode='replicate')
-        grad = F.conv2d(image, kernel, stride=1, padding=0, 
-            bias=None) * image_height
+        # image = F.pad(image, _quadruple(replicate_pad), mode='replicate')
+        grad = F.conv2d(image, kernel, stride=1, padding=1, 
+            bias=None)
+             # * image_height
         # modify the boundary based on forward & backward finite difference
         if self.correct:
             return torch.matmul(self.modifier.t(), grad)

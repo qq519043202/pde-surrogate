@@ -184,7 +184,7 @@ def last_decoding(in_features, out_channels, bias=False, drop_rate=0., upsample=
     last_up.add_module('norm3', nn.BatchNorm2d(in_features // 4))
     last_up.add_module('relu3', nn.ReLU(True))
     last_up.add_module('conv3', nn.Conv2d(in_features // 4, out_channels,
-        kernel_size=5, stride=1, padding=2, bias=bias))
+        kernel_size=4, stride=1, padding=2, bias=bias))
     return last_up
 
 
