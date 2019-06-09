@@ -3,6 +3,7 @@
 data/*
 datasets/*
 experiments/*
+result_img/*
 FEA_simp.py
 
 __pycache__/

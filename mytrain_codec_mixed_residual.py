@@ -62,7 +62,7 @@ class Parser(argparse.ArgumentParser):
         self.add_argument('--imsize', type=int, default=64)
         # training
         self.add_argument('--run', type=int, default=1, help='run instance')
-        self.add_argument('--epochs', type=int, default=300, help='number of epochs to train')
+        self.add_argument('--epochs', type=int, default=500, help='number of epochs to train')
         self.add_argument('--lr', type=float, default=1e-3, help='learnign rate')
         self.add_argument('--lr-div', type=float, default=2., help='lr div factor to get the initial lr')
         self.add_argument('--lr-pct', type=float, default=0.3, help='percentage to reach the maximun lr, which is args.lr')
@@ -123,7 +123,7 @@ if __name__ == '__main__':
                     init_features=args.init_features,
                     drop_rate=args.drop_rate,
                     out_activation=None,
-                    upsample=args.upsample)
+                    upsample=args.upsample).to(device)
     if args.debug:
         print(model)
     # if start from ckpt
@@ -132,7 +132,7 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(ckpt_file, map_location='cpu'))
         print(f'Loaded ckpt: {ckpt_file}')
         print(f'Resume training from epoch {args.ckpt_epoch + 1} to {args.epochs}')
-    model = model.to(device)
+
     # load data
     if args.data == 'grf_kle512':
         train_hdf5_file = args.data_dir + \
@@ -149,21 +149,33 @@ if __name__ == '__main__':
     assert args.ntrain <= ntrain_total, f"Only {args.ntrain_total} data "\
         f"available in {args.data} dataset, but needs {args.ntrain} training data."
     assert args.ntest <= ntest_total, f"Only {args.ntest_total} data "\
-        f"available in {args.data} dataset, but needs {args.ntest} test data."      
-    # train_loader, _ = load_data(train_hdf5_file, args.ntrain, args.batch_size, 
-    #     only_input=True, return_stats=False)
-    
+        f"available in {args.data} dataset, but needs {args.ntest} test data."   
+    train_loader, _ = load_data(train_hdf5_file, args.ntrain, args.batch_size, 
+        only_input=True, return_stats=False)
     test_loader, test_stats = load_data(test_hdf5_file, args.ntest, 
         args.test_batch_size, only_input=False, return_stats=True)
     y_test_variation = test_stats['y_variation']
     print(f'Test output variation per channel: {y_test_variation}')
 
     data = np.loadtxt("data/rho20x40_SIMP_Edge.txt", dtype=np.float32)
-    # ?????
+    # [bs, 1, 20, 40]
     data = data.reshape(-1,1,40,20).transpose([0,1,3,2])
 
-    data_dis = np.loadtxt("data/dis20x40_SIMP_Edge.txt", dtype=np.float32)
-    data_tuple = (torch.FloatTensor(data),)
+    data_u = np.loadtxt("data/dis20x40_SIMP_Edge.txt", dtype=np.float32)
+    data_s = np.loadtxt("data/stress20x40_SIMP_Edge.txt", dtype=np.float32)
+
+    ref_u0 = torch.from_numpy(data_u).unsqueeze(1).to(device)
+    ref_uy = ref_u0[:,:,range(1,1722,2)]
+    ref_ux = ref_u0[:,:,range(0,1722,2)]
+    ref_s0 = torch.from_numpy(data_s).unsqueeze(1).to(device)
+    ref_sx = ref_s0[:,:,range(0,2583,3)]
+    ref_sy = ref_s0[:,:,range(1,2583,3)]
+    ref_sxy = ref_s0[:,:,range(2,2583,3)]
+    # [bs, 5, 21, 41]
+    ref = torch.cat([ref_ux, ref_uy, ref_sx, ref_sy, ref_sxy],1).view(-1,5,41,21).permute(0,1,3,2)
+
+    # data_tuple = (torch.FloatTensor(data),)
+    data_tuple = (torch.FloatTensor(data), ref)
     # torch.FloatTensor(data_dis))
     train_loader = DataLoader(TensorDataset(*data_tuple),
         batch_size=args.batch_size, shuffle=True, drop_last=True)
@@ -183,51 +195,9 @@ if __name__ == '__main__':
 
     logger = {}
     logger['loss_train'] = []
-    logger['loss_test'] = []
-    logger['r2_test'] = []
-    logger['nrmse_test'] = []
+    logger['u_l2loss'] = []
+    logger['s_l2loss'] = []
 
-    def test(epoch):
-        model.eval()
-        loss_test = 0.
-        relative_l2, err2 = [], []
-        for batch_idx, (input, target) in enumerate(test_loader):
-            input, target = input.to(device), target.to(device)
-            output = model(input)
-            loss_pde = constitutive_constraint(input, output, sobel_filter) \
-                + continuity_constraint(output, sobel_filter)
-            loss_dirichlet, loss_neumann = boundary_condition(output)
-            loss_boundary = loss_dirichlet + loss_neumann
-            loss = loss_pde + loss_boundary * args.weight_bound
-            loss_test += loss.item()
-            # sum over H, W --> (B, C)
-            err2_sum = torch.sum((output - target) ** 2, [-1, -2])
-            relative_l2.append(torch.sqrt(err2_sum / (target ** 2).sum([-1, -2])))
-            err2.append(err2_sum)
-            # plot predictions
-            if (epoch % args.plot_freq == 0 or epoch == args.epochs) and \
-                batch_idx == len(test_loader) - 1:
-                n_samples = 6 if epoch == args.epochs else 2
-                idx = torch.randperm(input.size(0))[:n_samples]
-                samples_output = output.data.cpu()[idx].numpy()
-                samples_target = target.data.cpu()[idx].numpy()
-                for i in range(n_samples):
-                    print('epoch {}: plotting prediction {}'.format(epoch, i))
-                    plot_prediction_det(args.pred_dir, samples_target[i], 
-                        samples_output[i], epoch, i, plot_fn=args.plot_fn)
-
-        loss_test /= (batch_idx + 1)
-        relative_l2 = to_numpy(torch.cat(relative_l2, 0).mean(0))
-        r2_score = 1 - to_numpy(torch.cat(err2, 0).sum(0)) / y_test_variation
-        print(f"Epoch: {epoch}, test r2-score:  {r2_score}")
-        print(f"Epoch: {epoch}, test relative-l2:  {relative_l2}")
-        print(f'Epoch {epoch}: test loss: {loss_train:.6f}, loss_pde: {loss_pde.item():.6f}, '\
-                f'dirichlet {loss_dirichlet:.6f}, nuemann {loss_neumann.item():.6f}')
-
-        if epoch % args.log_freq == 0:
-            logger['loss_test'].append(loss_test)
-            logger['r2_test'].append(r2_score)
-            logger['nrmse_test'].append(relative_l2)
 
     print('Start training...................................................')
     start_epoch = 1 if args.ckpt_epoch is None else args.ckpt_epoch + 1
@@ -244,8 +214,10 @@ if __name__ == '__main__':
         #     plt.plot(logs[10:-5], losses[10:-5])
         #     plt.savefig(args.train_dir + '/find_lr.png')
         #     sys.exit(0)
+        relative_l2 = []
+
         loss_train, mse = 0., 0.
-        for batch_idx, (input, ) in enumerate(train_loader, start=1):
+        for batch_idx, (input, target) in enumerate(train_loader, start=1):
             input = input.to(device)
             model.zero_grad()
             output = model(input)
@@ -268,6 +240,12 @@ if __name__ == '__main__':
             # loss_boundary = loss_dirichlet + loss_neumann
             loss = loss_pde + loss_boundary * args.weight_bound
             loss.backward()
+
+            # uapr = output.view(input.shape[0],5,-1)
+            # e2 = torch.sum((output[:,:2] - target[:,:2]) ** 2 , [-1, -2])
+            # torch.sqrt(e2 / (target[:,:2] ** 2).sum([-1, -2]))
+            err2_sum = torch.sum((output - target) ** 2, [-1, -2])
+            relative_l2.append(torch.sqrt(err2_sum / (target ** 2).sum([-1, -2]) ) )
             # lr scheduling
             step = (epoch - 1) * len(train_loader) + batch_idx
             pct = step / total_steps
@@ -277,15 +255,19 @@ if __name__ == '__main__':
             loss_train += loss.item()
 
         loss_train /= batch_idx
-
+        relative_l2 = to_numpy(torch.cat(relative_l2, 0).mean(0))
+        relative_u = np.mean(relative_l2[:2])
+        relative_s = np.mean(relative_l2[2:])
         print(f'Epoch {epoch}, lr {lr:.6f}')
         print(f'Epoch {epoch}: training loss: {loss_train:.6f}, pde: {loss_pde:.6f}, '\
             # f'dirichlet {loss_dirichlet:.6f}, nuemann {loss_neumann:.6f}')
-            f'boundary {loss_boundary:.6f}')
+            f'boundary: {loss_boundary:.6f}, relative-u: {relative_u: .5f}, relative_s: {relative_s: .5f}')
         if epoch % args.log_freq == 0:
             logger['loss_train'].append(loss_train)
+            logger['u_l2loss'].append(relative_u)
+            logger['s_l2loss'].append(relative_s)
         if epoch % args.ckpt_freq == 0:
-            torch.save(model.state_dict(), args.ckpt_dir + "/model_epoch{}.pth".format(epoch))
+            torch.save(model, args.ckpt_dir + "/model_epoch{}.pth".format(epoch))
         
         # with torch.no_grad():
         #     test(epoch)
@@ -293,7 +275,7 @@ if __name__ == '__main__':
     tic2 = time.time()
     print(f'Finished training {args.epochs} epochs with {args.ntrain} data ' \
         f'using {(tic2 - tic) / 60:.2f} mins')
-    metrics = ['loss_train', 'loss_test', 'nrmse_test', 'r2_test']
+    metrics = ['loss_train', 'u_l2loss', 's_l2loss']
     save_stats(args.train_dir, logger, *metrics)
     args.training_time = tic2 - tic
     args.n_params, args.n_layers = model.model_size
