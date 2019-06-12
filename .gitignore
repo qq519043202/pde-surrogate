@@ -6,7 +6,6 @@ input_img/*
 result_img2/*
 experiments/*
 result_img/*
-FEA_simp.py
 
 __pycache__/
 *.py[cod]
