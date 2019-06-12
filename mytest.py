@@ -7,6 +7,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 c1 = np.array([1,1,0])
 c2 = np.array([0,0,1])
 
+def plot_input(data, filename):
+    skimage.io.imsave(filename, data,check_contrastbool=False)
+
 def plot_img(data, filename):
     data = (data - data.min()) / (data.max() - data.min())
     x = data.shape[0]
@@ -41,13 +44,28 @@ ref = torch.cat([ref_ux, ref_uy, ref_sx, ref_sy, ref_sxy],1).view(-1,5,41,21).pe
 input = torch.from_numpy(data).to(device)
 output = model(input)
 
-sample_num = 50
+sample_num = 10
 num_label = np.arange(0, input.shape[0])
 np.random.shuffle(num_label)
 sample = num_label[:sample_num]
-dirr = "result_img"
+
+# input_dir = "input_img"
+# for i in range(input.shape[0]):
+#     plot_input(1-input[i,0].cpu().detach().numpy(),f'{input_dir}/{i}-input.jpg')
+#     plot_img(output[i,0].cpu().detach().numpy(),f'{input_dir}/{i}-ux-pre.jpg')
+#     plot_img(output[i,1].cpu().detach().numpy(),f'{input_dir}/{i}-uy-pre.jpg')
+#     plot_img(output[i,2].cpu().detach().numpy(),f'{input_dir}/{i}-sx-pre.jpg')
+#     plot_img(output[i,3].cpu().detach().numpy(),f'{input_dir}/{i}-sy-pre.jpg')
+#     plot_img(output[i,4].cpu().detach().numpy(),f'{input_dir}/{i}-sxy-pre.jpg')
+#     plot_img(ref[i,0].cpu().detach().numpy(),f'{input_dir}/{i}-ux-ref.jpg')
+#     plot_img(ref[i,1].cpu().detach().numpy(),f'{input_dir}/{i}-uy-ref.jpg')
+#     plot_img(ref[i,2].cpu().detach().numpy(),f'{input_dir}/{i}-sx-ref.jpg')
+#     plot_img(ref[i,3].cpu().detach().numpy(),f'{input_dir}/{i}-sy-ref.jpg')
+#     plot_img(ref[i,4].cpu().detach().numpy(),f'{input_dir}/{i}-sxy-ref.jpg')
+
+dirr = "result_img2"
 for i in sample:
-    plot_img(input[i,0].cpu().detach().numpy(),f'{dirr}/{i}-input.jpg')
+    plot_input(1-input[i,0].cpu().detach().numpy(),f'{dirr}/{i}-input.jpg')
     plot_img(output[i,0].cpu().detach().numpy(),f'{dirr}/{i}-ux-pre.jpg')
     plot_img(output[i,1].cpu().detach().numpy(),f'{dirr}/{i}-uy-pre.jpg')
     plot_img(output[i,2].cpu().detach().numpy(),f'{dirr}/{i}-sx-pre.jpg')

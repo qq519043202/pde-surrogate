@@ -40,6 +40,9 @@ from pprint import pprint
 import json
 import sys
 import matplotlib.pyplot as plt
+import h5py
+from FEA_simp import ComputeTarget
+
 plt.switch_backend('agg')
 
 
@@ -150,8 +153,23 @@ if __name__ == '__main__':
         f"available in {args.data} dataset, but needs {args.ntrain} training data."
     assert args.ntest <= ntest_total, f"Only {args.ntest_total} data "\
         f"available in {args.data} dataset, but needs {args.ntest} test data."   
-    train_loader, _ = load_data(train_hdf5_file, args.ntrain, args.batch_size, 
-        only_input=True, return_stats=False)
+    
+    # modif its data
+    with h5py.File(train_hdf5_file, 'r') as f:
+        # x_data = f['input'][:ndata]
+        x_data = f['input'][:args.ntrain,:,:20,:40]
+    x_data = (x_data - x_data.min()) /( x_data.max() - x_data.min())
+    print("ComputeTarget....")
+    label_data = ComputeTarget(x_data)
+    print("ComputeTarget finish")
+    data_tuple = (torch.FloatTensor(x_data), torch.FloatTensor(label_data).to(device))
+    train_loader = DataLoader(TensorDataset(*data_tuple),
+        batch_size=args.batch_size, shuffle=True, drop_last=True)
+
+    # train_loader, _ = load_data(train_hdf5_file, args.ntrain, args.batch_size, 
+    #     only_input=True, return_stats=False)
+
+
     test_loader, test_stats = load_data(test_hdf5_file, args.ntest, 
         args.test_batch_size, only_input=False, return_stats=True)
     y_test_variation = test_stats['y_variation']
@@ -177,8 +195,8 @@ if __name__ == '__main__':
     # data_tuple = (torch.FloatTensor(data),)
     data_tuple = (torch.FloatTensor(data), ref)
     # torch.FloatTensor(data_dis))
-    train_loader = DataLoader(TensorDataset(*data_tuple),
-        batch_size=args.batch_size, shuffle=True, drop_last=True)
+    # train_loader = DataLoader(TensorDataset(*data_tuple),
+    #     batch_size=args.batch_size, shuffle=True, drop_last=True)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr,
                         weight_decay=args.weight_decay)
@@ -245,6 +263,7 @@ if __name__ == '__main__':
             # e2 = torch.sum((output[:,:2] - target[:,:2]) ** 2 , [-1, -2])
             # torch.sqrt(e2 / (target[:,:2] ** 2).sum([-1, -2]))
             err2_sum = torch.sum((output - target) ** 2, [-1, -2])
+            # relative_l2.append(err2_sum)
             relative_l2.append(torch.sqrt(err2_sum / (target ** 2).sum([-1, -2]) ) )
             # lr scheduling
             step = (epoch - 1) * len(train_loader) + batch_idx

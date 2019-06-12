@@ -174,7 +174,7 @@ if __name__ == '__main__':
                 + continuity_constraint(output, sobel_filter)
             loss_dirichlet, loss_neumann = boundary_condition(output)
             loss_boundary = loss_dirichlet + loss_neumann
-            loss = loss_pde + loss_boundary * args.weight_bound
+            loss = 20*loss_pde + loss_boundary * args.weight_bound
             loss_test += loss.item()
             # sum over H, W --> (B, C)
             err2_sum = torch.sum((output - target) ** 2, [-1, -2])

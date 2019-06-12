@@ -166,7 +166,7 @@ def cc1(input, output, output_post, sobel_filter, device):
     nu = 0.3
     # C0np = np.array()
     C0 = E/(1-nu**2)*torch.Tensor([[1,nu,0],[nu,1,0],[0,0,(1-nu)/2]]).to(device)
-    pp = input.view(input.shape[0], -1, 1, 1).to(device)
+    pp = input.contiguous().view(input.shape[0], -1, 1, 1).to(device)
     # pp = input.permute(0,1,3,2).contiguous().view(input.shape[0], -1, 1, 1).to(device)
     C = pp*C0
 
@@ -280,16 +280,16 @@ def conv_continuity_constraint(output, sobel_filter, use_tb=True):
     else:
         return ((sigma1_x1 + sigma2_x2) ** 2)[:, :, 1:-1, :].mean()
 
-def bc(output_post):
-    ux = output_post[:, [0]]
-    uy = output_post[:, [1]]
+def bc(output, output_post):
+    ux = output[:, [0]]
+    uy = output[:, [1]]
     lu = ux[:,:,:,0]**2 + uy[:,:,:,0]**2
     sx = output_post[:, [2]]
     sy = output_post[:, [3]]
     sxy = output_post[:, [4]]
-    lbr = (sx[:,:,:,39]-1)**2 + (sxy[:,:,:,39])**2
-    lbt = (sy[:,:,0,:])**2 + (sxy[:,:,0,:])**2
-    lbb = (sy[:,:,19,:])**2 + (sxy[:,:,19,:])**2
+    lbr = (sx[:,:,1:-1,39]-1)**2 + (sxy[:,:,1:-1:,39])**2
+    lbt = (sy[:,:,0,1:-1])**2 + (sxy[:,:,0,1:-1])**2
+    lbb = (sy[:,:,19,1:-1])**2 + (sxy[:,:,19,1:-1])**2
     return torch.cat([lu,lbb,lbt,lbr],2).mean()
 
 # !!!!!!!!!!!!
