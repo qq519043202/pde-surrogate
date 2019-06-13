@@ -8,6 +8,7 @@ import torch.autograd as ag
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+import numpy as np
 
 plt.switch_backend('agg')
 
@@ -184,6 +185,17 @@ def cc1(input, output, output_post, sobel_filter, device):
     B0T = B0.transpose(0,1)
     ux = output[:,[0]]
     uy = output[:,[1]]
+    
+    k1 = torch.FloatTensor( np.array([[[[-0.5,0.5],[-0.5,0.5]]]]) ).to(device)
+    k2 = torch.FloatTensor( np.array([[[[-0.5,-0.5],[-0.5,0.5]]]]) ).to(device)
+    k31 = torch.FloatTensor( np.array([[[[-0.5,-0.5],[0.5,0.5]]]]) ).to(device)
+    k32 = torch.FloatTensor( np.array([[[[-0.5,0.5],[-0.5,0.5]]]]) ).to(device)
+    ux1 = F.conv2d(ux, k1, stride=1, padding=0, bias=None)
+    uy1 = F.conv2d(uy, k2, stride=1, padding=0, bias=None)
+    ux2 = F.conv2d(ux, k31, stride=1, padding=0, bias=None)
+    uy2 = F.conv2d(uy, k32, stride=1, padding=0, bias=None)
+    utest = torch.cat([ux1, uy1, ux2+uy2], 1)
+
     unfold = nn.Unfold(kernel_size=(2, 2))
     # [bs, 4, w*h]
     uex = unfold(ux)

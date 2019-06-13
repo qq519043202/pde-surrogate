@@ -160,11 +160,11 @@ if __name__ == '__main__':
         x_data = f['input'][:args.ntrain,:,:20,:40]
     x_data = (x_data - x_data.min()) /( x_data.max() - x_data.min())
     print("ComputeTarget....")
-    label_data = ComputeTarget(x_data)
-    print("ComputeTarget finish")
-    data_tuple = (torch.FloatTensor(x_data), torch.FloatTensor(label_data).to(device))
-    train_loader = DataLoader(TensorDataset(*data_tuple),
-        batch_size=args.batch_size, shuffle=True, drop_last=True)
+    # label_data = ComputeTarget(x_data)
+    # print("ComputeTarget finish")
+    # data_tuple = (torch.FloatTensor(x_data), torch.FloatTensor(label_data).to(device))
+    # train_loader = DataLoader(TensorDataset(*data_tuple),
+    #     batch_size=args.batch_size, shuffle=True, drop_last=True)
 
     # train_loader, _ = load_data(train_hdf5_file, args.ntrain, args.batch_size, 
     #     only_input=True, return_stats=False)
@@ -195,8 +195,8 @@ if __name__ == '__main__':
     # data_tuple = (torch.FloatTensor(data),)
     data_tuple = (torch.FloatTensor(data), ref)
     # torch.FloatTensor(data_dis))
-    # train_loader = DataLoader(TensorDataset(*data_tuple),
-    #     batch_size=args.batch_size, shuffle=True, drop_last=True)
+    train_loader = DataLoader(TensorDataset(*data_tuple),
+        batch_size=args.batch_size, shuffle=True, drop_last=True)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr,
                         weight_decay=args.weight_decay)
@@ -250,7 +250,7 @@ if __name__ == '__main__':
             
             loss_pde = cc1(input, output, output_post, sobel_filter, device) \
              + cc2(output_post, sobel_filter)
-            loss_boundary = bc(output_post)
+            loss_boundary = bc(output, output_post)
 
             # loss_pde = constitutive_constraint(input, output, sobel_filter) \
             #     + continuity_constraint(output, sobel_filter)

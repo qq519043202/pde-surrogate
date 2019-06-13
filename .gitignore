@@ -6,6 +6,7 @@ input_img/*
 result_img2/*
 experiments/*
 result_img/*
+nohup.out
 
 __pycache__/
 *.py[cod]
