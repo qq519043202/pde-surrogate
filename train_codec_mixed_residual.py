@@ -48,7 +48,7 @@ class Parser(argparse.ArgumentParser):
         # data 
         self.add_argument('--data-dir', type=str, default="./datasets", help='directory to dataset')
         self.add_argument('--data', type=str, default='grf_kle512', choices=['grf_kle512', 'channelized'])
-        self.add_argument('--ntrain', type=int, default=4096, help="number of training data")
+        self.add_argument('--ntrain', type=int, default=5000, help="number of training data")
         self.add_argument('--ntest', type=int, default=512, help="number of validation data")
         self.add_argument('--imsize', type=int, default=64)
         # training

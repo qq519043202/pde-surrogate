@@ -60,12 +60,12 @@ class Parser(argparse.ArgumentParser):
         # data 
         self.add_argument('--data-dir', type=str, default="./datasets", help='directory to dataset')
         self.add_argument('--data', type=str, default='grf_kle512', choices=['grf_kle512', 'channelized'])
-        self.add_argument('--ntrain', type=int, default=4096, help="number of training data")
+        self.add_argument('--ntrain', type=int, default=4010, help="number of training data")
         self.add_argument('--ntest', type=int, default=512, help="number of validation data")
         self.add_argument('--imsize', type=int, default=64)
         # training
         self.add_argument('--run', type=int, default=1, help='run instance')
-        self.add_argument('--epochs', type=int, default=500, help='number of epochs to train')
+        self.add_argument('--epochs', type=int, default=5000, help='number of epochs to train')
         self.add_argument('--lr', type=float, default=1e-3, help='learnign rate')
         self.add_argument('--lr-div', type=float, default=2., help='lr div factor to get the initial lr')
         self.add_argument('--lr-pct', type=float, default=0.3, help='percentage to reach the maximun lr, which is args.lr')
@@ -93,8 +93,8 @@ class Parser(argparse.ArgumentParser):
         args.ckpt_dir = args.run_dir + '/checkpoints'
         mkdirs(args.run_dir, args.ckpt_dir)
 
-        assert args.ntrain % args.batch_size == 0 and \
-            args.ntest % args.test_batch_size == 0
+        # assert args.ntrain % args.batch_size == 0 and \
+        #     args.ntest % args.test_batch_size == 0
 
         if args.seed is None:
             args.seed = random.randint(1, 10000)
@@ -213,6 +213,9 @@ if __name__ == '__main__':
 
     logger = {}
     logger['loss_train'] = []
+    logger['loss_pde1'] = []
+    logger['loss_pde2'] = []
+    logger['loss_b'] = []
     logger['u_l2loss'] = []
     logger['s_l2loss'] = []
 
@@ -247,16 +250,17 @@ if __name__ == '__main__':
             o4 = F.conv2d(output[:,[4]], WEIGHTS_2x2, stride=1, padding=0, bias=None) 
             output_post = torch.cat([o0,o1,o2,o3,o4],1)
 
-            
-            loss_pde = cc1(input, output, output_post, sobel_filter, device) \
-             + cc2(output_post, sobel_filter)
+            loss_pde1 = cc1(input, output, output_post, sobel_filter, device)
+            loss_pde2 = cc2(output_post, sobel_filter)
+            loss_pde = loss_pde1 + 2*loss_pde2
             loss_boundary = bc(output, output_post)
 
             # loss_pde = constitutive_constraint(input, output, sobel_filter) \
             #     + continuity_constraint(output, sobel_filter)
             # loss_dirichlet, loss_neumann = boundary_condition(output)
             # loss_boundary = loss_dirichlet + loss_neumann
-            loss = loss_pde + loss_boundary * args.weight_bound
+            loss = loss_pde + loss_boundary
+             # * args.weight_bound
             loss.backward()
 
             # uapr = output.view(input.shape[0],5,-1)
@@ -278,11 +282,14 @@ if __name__ == '__main__':
         relative_u = np.mean(relative_l2[:2])
         relative_s = np.mean(relative_l2[2:])
         print(f'Epoch {epoch}, lr {lr:.6f}')
-        print(f'Epoch {epoch}: training loss: {loss_train:.6f}, pde: {loss_pde:.6f}, '\
+        print(f'Epoch {epoch}: training loss: {loss_train:.6f}, pde1: {loss_pde1:.6f}, pde2: {loss_pde2:.6f},， '\
             # f'dirichlet {loss_dirichlet:.6f}, nuemann {loss_neumann:.6f}')
             f'boundary: {loss_boundary:.6f}, relative-u: {relative_u: .5f}, relative_s: {relative_s: .5f}')
         if epoch % args.log_freq == 0:
             logger['loss_train'].append(loss_train)
+            logger['loss_pde1'].append(loss_pde1)
+            logger['loss_pde2'].append(loss_pde2)
+            logger['loss_b'].append(loss_boundary)
             logger['u_l2loss'].append(relative_u)
             logger['s_l2loss'].append(relative_s)
         if epoch % args.ckpt_freq == 0:
@@ -294,7 +301,7 @@ if __name__ == '__main__':
     tic2 = time.time()
     print(f'Finished training {args.epochs} epochs with {args.ntrain} data ' \
         f'using {(tic2 - tic) / 60:.2f} mins')
-    metrics = ['loss_train', 'u_l2loss', 's_l2loss']
+    metrics = ['loss_train','loss_pde1', 'loss_pde2', 'loss_b', 'u_l2loss', 's_l2loss']
     save_stats(args.train_dir, logger, *metrics)
     args.training_time = tic2 - tic
     args.n_params, args.n_layers = model.model_size

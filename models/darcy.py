@@ -169,7 +169,7 @@ def cc1(input, output, output_post, sobel_filter, device):
     C0 = E/(1-nu**2)*torch.Tensor([[1,nu,0],[nu,1,0],[0,0,(1-nu)/2]]).to(device)
     pp = input.contiguous().view(input.shape[0], -1, 1, 1).to(device)
     # pp = input.permute(0,1,3,2).contiguous().view(input.shape[0], -1, 1, 1).to(device)
-    C = pp*C0
+    C = pp**3*C0
 
     # duxdx = sobel_filter.grad_h(output[:, [0]])
     # duxdy = sobel_filter.grad_v(output[:, [0]])
@@ -180,6 +180,21 @@ def cc1(input, output, output_post, sobel_filter, device):
     # d3 = duxdy+duydx
     # du = torch.cat([d1,d2,d3],1)
     # du_post = du.view(du.shape[0],3,-1,1).permute(0,2,1,3)
+    B=np.zeros([4,3,8],dtype=np.float32)
+    B[0,:,:]=np.array([ [-1,  0, 1, 0, 0, 0, 0, 0],
+                        [0, -1, 0, 0, 0, 0, 0, 1],
+                        [-1, -1, 0, 1, 0, 0, 1, 0] ])
+    B[1,:,:]=np.array([ [-1,  0,  1,  0, 0, 0, 0, 0],
+                        [0,  0,  0, -1, 0, 1, 0, 0],
+                        [0, -1, -1,  1, 1, 0, 0, 0] ])
+    B[2,:,:]=np.array([ [0, 0,  0,  0, 1, 0, -1,  0],
+                        [0, 0,  0, -1, 0, 1,  0,  0],
+                        [0, 0, -1,  0, 1, 1,  0, -1] ])
+    B[3,:,:]=np.array([ [0,  0, 0, 0, 1, 0, -1,  0],
+                        [0, -1, 0, 0, 0, 0,  0,  1],
+                        [-1,  0, 0, 0, 0, 1,  1, -1] ])
+    B = torch.from_numpy(B).to(device)
+
     B0 = torch.Tensor([[-0.5,0,-0.5],[0,-0.5,-0.5],[0.5,0,-0.5],\
         [0,-0.5,0.5],[0.5,0,0.5] ,[0,0.5,0.5],[-0.5,0,0.5],[0,-0.5,-0.5]]).to(device)
     B0T = B0.transpose(0,1)
@@ -204,13 +219,35 @@ def cc1(input, output, output_post, sobel_filter, device):
     ue = ue_not[:,:,[0,4,1,5,3,7,2,6]].unsqueeze(3)
 
 
-    sig = output_post[:, [2,3,4]]
-    sig_post = sig.view(sig.shape[0],3,-1,1).permute(0,2,1,3)
+    # sig = output_post[:, [2,3,4]]
+    # sig_post = sig.view(sig.shape[0],3,-1,1).permute(0,2,1,3)
+    du0 = torch.matmul(C, torch.matmul(B[0,:,:],ue))
+    du1 = torch.matmul(C, torch.matmul(B[1,:,:],ue))
+    du2 = torch.matmul(C, torch.matmul(B[2,:,:],ue))
+    du3 = torch.matmul(C, torch.matmul(B[3,:,:],ue))
+    du0t = du0.permute([0,2,1,3]).contiguous().view(-1,3,20,40)
+    du1t = du1.permute([0,2,1,3]).contiguous().view(-1,3,20,40)
+    du2t = du2.permute([0,2,1,3]).contiguous().view(-1,3,20,40)
+    du3t = du3.permute([0,2,1,3]).contiguous().view(-1,3,20,40)
+    ones = torch.ones_like(du0t)
 
+    masks =torch.zeros([du0.shape[0],3,21,41]).to(device)
+    result =torch.zeros([du0.shape[0],3,21,41]).to(device)
+    result[:,:,:20,:40] = du0t
+    result[:,:,:20,1:] += du1t
+    result[:,:,1:,:40] += du3t
+    result[:,:,1:,1:] += du2t
+
+    masks[:,:,:20,:40] += ones
+    masks[:,:,:20,1:] += ones
+    masks[:,:,1:,:40] += ones
+    masks[:,:,1:,1:] += ones
+    lp1 = (result / masks) - output[:, [2,3,4]]
     # lp1 = torch.matmul(C,du_post) - sig_post
-    lp1 = torch.matmul(C, torch.matmul(B0T,ue)) - sig_post
+    # lp1 = torch.matmul(C, torch.matmul(B0T,ue)) - sig_post
     # ???
-    return (lp1**2).mean()
+    # return (lp1**2).sum([1,2,3])
+    return (lp1**2).sum([1,2,3]).mean()
 
 
 # !!!!!!!!!!!!
@@ -271,8 +308,8 @@ def cc2(output, sobel_filter):
     dsxydy = sobel_filter.grad_v(output[:, [4]])
 
     ds = torch.cat([dsxdx+dsxydy, dsydy+dsxydx],1)
-    
-    return (ds ** 2).mean()
+#     return (ds ** 2).mean()
+    return (ds ** 2).sum([1,2,3]).mean()
 
 
 # !!!!!!!!!!!!
@@ -296,13 +333,13 @@ def bc(output, output_post):
     ux = output[:, [0]]
     uy = output[:, [1]]
     lu = ux[:,:,:,0]**2 + uy[:,:,:,0]**2
-    sx = output_post[:, [2]]
-    sy = output_post[:, [3]]
-    sxy = output_post[:, [4]]
-    lbr = (sx[:,:,1:-1,39]-1)**2 + (sxy[:,:,1:-1:,39])**2
-    lbt = (sy[:,:,0,1:-1])**2 + (sxy[:,:,0,1:-1])**2
-    lbb = (sy[:,:,19,1:-1])**2 + (sxy[:,:,19,1:-1])**2
-    return torch.cat([lu,lbb,lbt,lbr],2).mean()
+    sx = output[:, [2]]
+    sy = output[:, [3]]
+    sxy = output[:, [4]]
+    lbr = (sx[:,:,:,40]-1)**2 + (sxy[:,:,:,40])**2
+    lbt = (sy[:,:,0,2:-2])**2 + (sxy[:,:,0,2:-2])**2
+    lbb = (sy[:,:,20,2:-2])**2 + (sxy[:,:,20,2:-2])**2
+    return torch.cat([lu,lbb,lbt,lbr],2).sum([-1]).mean()
 
 # !!!!!!!!!!!!
 def conv_boundary_condition(output):
