@@ -91,6 +91,7 @@ def lk():
 	[k[6], k[3], k[4], k[1], k[2], k[7], k[0], k[5]],
 	[k[7], k[2], k[1], k[4], k[3], k[6], k[5], k[0]] ])
 	return (KE)
+
 def ElasticTensor():
     E=1
     nu=0.3

@@ -25,7 +25,11 @@ from models.darcy import conv_boundary_condition as boundary_condition
 # my loss
 from models.darcy import cc1
 from models.darcy import cc2
+from models.darcy import cc2new
 from models.darcy import bc
+
+from models.darcy import cc1_new, bc_new
+
 from torch.utils.data import DataLoader, TensorDataset
 
 from utils.image_gradient import SobelFilter
@@ -42,6 +46,7 @@ import sys
 import matplotlib.pyplot as plt
 import h5py
 from FEA_simp import ComputeTarget
+from mytest import testsample, get_testsample
 
 plt.switch_backend('agg')
 
@@ -52,7 +57,7 @@ class Parser(argparse.ArgumentParser):
         self.add_argument('--exp-name', type=str, default='codec/mixed_residual', help='experiment name')
         self.add_argument('--exp-dir', type=str, default="./experiments", help='directory to save experiments')      
         # codec
-        self.add_argument('--blocks', type=list, default=[6, 8, 6], help='list of number of layers in each dense block')
+        self.add_argument('--blocks', type=list, default=[8, 12, 8], help='list of number of layers in each dense block')
         self.add_argument('--growth-rate', type=int, default=16, help='number of output feature maps of each conv layer within each dense block')
         self.add_argument('--init-features', type=int, default=48, help='number of initial features after the first conv layer')        
         self.add_argument('--drop-rate', type=float, default=0., help='dropout rate')
@@ -60,25 +65,25 @@ class Parser(argparse.ArgumentParser):
         # data 
         self.add_argument('--data-dir', type=str, default="./datasets", help='directory to dataset')
         self.add_argument('--data', type=str, default='grf_kle512', choices=['grf_kle512', 'channelized'])
-        self.add_argument('--ntrain', type=int, default=4010, help="number of training data")
+        self.add_argument('--ntrain', type=int, default=7003, help="number of training data")
         self.add_argument('--ntest', type=int, default=512, help="number of validation data")
         self.add_argument('--imsize', type=int, default=64)
         # training
         self.add_argument('--run', type=int, default=1, help='run instance')
-        self.add_argument('--epochs', type=int, default=5000, help='number of epochs to train')
+        self.add_argument('--epochs', type=int, default=50000, help='number of epochs to train')
         self.add_argument('--lr', type=float, default=1e-3, help='learnign rate')
         self.add_argument('--lr-div', type=float, default=2., help='lr div factor to get the initial lr')
         self.add_argument('--lr-pct', type=float, default=0.3, help='percentage to reach the maximun lr, which is args.lr')
         self.add_argument('--weight-decay', type=float, default=0., help="weight decay")
         self.add_argument('--weight-bound', type=float, default=10, help="weight for boundary loss")
-        self.add_argument('--batch-size', type=int, default=32, help='input batch size for training')
+        self.add_argument('--batch-size', type=int, default=64, help='input batch size for training')
         self.add_argument('--test-batch-size', type=int, default=64, help='input batch size for testing')
         self.add_argument('--seed', type=int, default=1, help='manual seed used in Tensor')
         self.add_argument('--cuda', type=int, default=0, choices=[0, 1, 2, 3], help='cuda index')
         # logging
         self.add_argument('--debug', action='store_true', default=True, help='debug or verbose')
         self.add_argument('--ckpt-epoch', type=int, default=None, help='which epoch of checkpoints to be loaded')
-        self.add_argument('--ckpt-freq', type=int, default=100, help='how many epochs to wait before saving model')
+        self.add_argument('--ckpt-freq', type=int, default=2000, help='how many epochs to wait before saving model')
         self.add_argument('--log-freq', type=int, default=1, help='how many epochs to wait before logging training status')
         self.add_argument('--plot-freq', type=int, default=50, help='how many epochs to wait before plotting test output')
         self.add_argument('--plot-fn', type=str, default='imshow', choices=['contourf', 'imshow'], help='plotting method')
@@ -91,6 +96,8 @@ class Parser(argparse.ArgumentParser):
             hparams = 'debug/' + hparams
         args.run_dir = args.exp_dir + '/' + args.exp_name + '/' + hparams
         args.ckpt_dir = args.run_dir + '/checkpoints'
+        # print(args.run_dir)
+        # print(args.ckpt_dir)
         mkdirs(args.run_dir, args.ckpt_dir)
 
         # assert args.ntrain % args.batch_size == 0 and \
@@ -119,7 +126,7 @@ if __name__ == '__main__':
     args.pred_dir = args.train_dir + '/predictions'
     mkdirs(args.train_dir, args.pred_dir)
 
-    model = DenseED(in_channels=1, out_channels=5, 
+    model = DenseED(in_channels=1, out_channels=2, 
                     imsize=args.imsize,
                     blocks=args.blocks,
                     growth_rate=args.growth_rate, 
@@ -128,7 +135,8 @@ if __name__ == '__main__':
                     out_activation=None,
                     upsample=args.upsample).to(device)
     if args.debug:
-        print(model)
+        # print(model)
+        pass
     # if start from ckpt
     if args.ckpt_epoch is not None:
         ckpt_file = args.run_dir + f'/checkpoints/model_epoch{args.ckpt_epoch}.pth'
@@ -181,6 +189,17 @@ if __name__ == '__main__':
 
     data_u = np.loadtxt("data/dis20x40_SIMP_Edge.txt", dtype=np.float32)
     data_s = np.loadtxt("data/stress20x40_SIMP_Edge.txt", dtype=np.float32)
+
+    # filter data
+    result_label = []
+    for ind,i in enumerate(data_u):
+        if i.max()>5000 or i.min()<-1000:
+            pass
+        else:
+            result_label.append(ind)
+    data = data[result_label]
+    data_u = data_u[result_label]
+    data_s = data_s[result_label]
 
     ref_u0 = torch.from_numpy(data_u).unsqueeze(1).to(device)
     ref_uy = ref_u0[:,:,range(1,1722,2)]
@@ -243,23 +262,28 @@ if __name__ == '__main__':
             model.zero_grad()
             output = model(input)
             # post output
-            o0 = F.conv2d(output[:,[0]], WEIGHTS_2x2, stride=1, padding=0, bias=None)
-            o1 = F.conv2d(output[:,[1]], WEIGHTS_2x2, stride=1, padding=0, bias=None) 
-            o2 = F.conv2d(output[:,[2]], WEIGHTS_2x2, stride=1, padding=0, bias=None) 
-            o3 = F.conv2d(output[:,[3]], WEIGHTS_2x2, stride=1, padding=0, bias=None) 
-            o4 = F.conv2d(output[:,[4]], WEIGHTS_2x2, stride=1, padding=0, bias=None) 
-            output_post = torch.cat([o0,o1,o2,o3,o4],1)
+            # o0 = F.conv2d(output[:,[0]], WEIGHTS_2x2, stride=1, padding=0, bias=None)
+            # o1 = F.conv2d(output[:,[1]], WEIGHTS_2x2, stride=1, padding=0, bias=None) 
+            # o2 = F.conv2d(output[:,[2]], WEIGHTS_2x2, stride=1, padding=0, bias=None) 
+            # o3 = F.conv2d(output[:,[3]], WEIGHTS_2x2, stride=1, padding=0, bias=None) 
+            # o4 = F.conv2d(output[:,[4]], WEIGHTS_2x2, stride=1, padding=0, bias=None) 
+            # output_post = torch.cat([o0,o1,o2,o3,o4],1)
 
-            loss_pde1 = cc1(input, output, output_post, sobel_filter, device)
-            loss_pde2 = cc2(output_post, sobel_filter)
-            loss_pde = loss_pde1 + 2*loss_pde2
-            loss_boundary = bc(output, output_post)
+            # new
+            target = target[:,:2,:,:]
+            loss_pde = cc1_new(input, output, device)
+            loss_pde1 = loss_pde
+            # loss_boundary = 0
+            loss_boundary = bc_new(output)
 
-            # loss_pde = constitutive_constraint(input, output, sobel_filter) \
-            #     + continuity_constraint(output, sobel_filter)
-            # loss_dirichlet, loss_neumann = boundary_condition(output)
-            # loss_boundary = loss_dirichlet + loss_neumann
-            loss = loss_pde + loss_boundary
+            # old
+            # loss_pde1 = cc1(input, output, output_post, sobel_filter, device)
+            # # loss_pde2 = cc2(output_post, sobel_filter)
+            # loss_pde2 = cc2new(output, sobel_filter)
+            # loss_pde = 2*loss_pde1 + 3*loss_pde2
+            # loss_boundary = bc(output, output_post)
+
+            loss = 200*loss_pde + loss_boundary
              # * args.weight_bound
             loss.backward()
 
@@ -282,18 +306,24 @@ if __name__ == '__main__':
         relative_u = np.mean(relative_l2[:2])
         relative_s = np.mean(relative_l2[2:])
         print(f'Epoch {epoch}, lr {lr:.6f}')
-        print(f'Epoch {epoch}: training loss: {loss_train:.6f}, pde1: {loss_pde1:.6f}, pde2: {loss_pde2:.6f},， '\
-            # f'dirichlet {loss_dirichlet:.6f}, nuemann {loss_neumann:.6f}')
-            f'boundary: {loss_boundary:.6f}, relative-u: {relative_u: .5f}, relative_s: {relative_s: .5f}')
+        # print(f'Epoch {epoch}: training loss: {loss_train:.6f}, pde1: {loss_pde1:.6f}, pde2: {loss_pde2:.6f}, '\
+        #     # f'dirichlet {loss_dirichlet:.6f}, nuemann {loss_neumann:.6f}')
+        #     f'boundary: {loss_boundary:.6f}, relative-u: {relative_u: .5f}, relative_s: {relative_s: .5f}')
+        print(f'Epoch {epoch}: training loss: {loss_train:.6f}, pde1: {loss_pde1:.6f} '\
+            f'boundary: {loss_boundary:.6f}, relative-u: {relative_u: .5f}')
         if epoch % args.log_freq == 0:
             logger['loss_train'].append(loss_train)
             logger['loss_pde1'].append(loss_pde1)
-            logger['loss_pde2'].append(loss_pde2)
+            # logger['loss_pde2'].append(loss_pde2)
             logger['loss_b'].append(loss_boundary)
             logger['u_l2loss'].append(relative_u)
             logger['s_l2loss'].append(relative_s)
         if epoch % args.ckpt_freq == 0:
             torch.save(model, args.ckpt_dir + "/model_epoch{}.pth".format(epoch))
+            sampledir = args.ckpt_dir + "/model{}".format(epoch)
+            mkdirs((sampledir))
+            get_testsample(model, sampledir, data, ref)
+            # testsample(args.ckpt_dir + "/model_epoch{}.pth".format(epoch), sampledir)
         
         # with torch.no_grad():
         #     test(epoch)
@@ -301,7 +331,8 @@ if __name__ == '__main__':
     tic2 = time.time()
     print(f'Finished training {args.epochs} epochs with {args.ntrain} data ' \
         f'using {(tic2 - tic) / 60:.2f} mins')
-    metrics = ['loss_train','loss_pde1', 'loss_pde2', 'loss_b', 'u_l2loss', 's_l2loss']
+    metrics = ['loss_train','loss_pde1', 'loss_b', 'u_l2loss', 's_l2loss']
+    # metrics = ['loss_train','loss_pde1', 'loss_pde2', 'loss_b', 'u_l2loss', 's_l2loss']
     save_stats(args.train_dir, logger, *metrics)
     args.training_time = tic2 - tic
     args.n_params, args.n_layers = model.model_size

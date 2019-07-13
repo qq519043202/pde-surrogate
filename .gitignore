@@ -8,6 +8,9 @@ experiments/*
 result_img/*
 nohup.out
 
+
+models/newloss.txt
+
 __pycache__/
 *.py[cod]
 *$py.class

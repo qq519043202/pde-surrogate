@@ -162,6 +162,91 @@ def energy_functional_exp(input, output, sobel_filter):
     return (0.5 * torch.exp(input * output) * (grad_h ** 2 + grad_v ** 2)).mean()
 
 
+def cc2_fe(input, output,device):
+    E = 1.0
+    nu = 0.3
+    # C0np = np.array()
+    C0 = E/(1-nu**2)*torch.Tensor([[1,nu,0],[nu,1,0],[0,0,(1-nu)/2]]).to(device)
+    pp = input.contiguous().view(input.shape[0], -1, 1, 1).to(device)
+    # pp = input.permute(0,1,3,2).contiguous().view(input.shape[0], -1, 1, 1).to(device)
+    C = pp**3*C0
+    
+    
+    ux = output[:,[0]]
+    uy = output[:,[1]]
+    unfold = nn.Unfold(kernel_size=(2, 2))
+    # [bs, 4, w*h]
+    uex = unfold(ux)
+    uey = unfold(uy)
+    ue_not = torch.cat([uex, uey], 1).permute([0,2,1])
+    ue = ue_not[:,:,[0,4,1,5,3,7,2,6]].unsqueeze(3)
+    
+    Bxy=np.zeros([2,3,8],dtype=np.float32)
+    Bxy[0,:,:]=np.array([ [0, 0,  0,  0, 0, 0,  0,  0],
+                   [0, 1,  0, -1, 0, 1,  0, -1],
+                   [1, 0, -1,  0, 1, 0, -1,  0] ])
+    Bxy[1,:,:]=np.array([ [1, 0, -1,  0, 1, 0, -1,  0],
+                   [0, 0,  0,  0, 0, 0,  0,  0],
+                   [0, 1,  0, -1, 0, 1,  0, -1] ])
+    Bxy = torch.from_numpy(Bxy).to(device)
+    S_x = torch.matmul(C, torch.matmul(Bxy[0,:,:],ue))
+    S_y = torch.matmul(C, torch.matmul(Bxy[1,:,:],ue))
+    return S_x.shape
+
+def cc1_new(input, output, device):
+    E=1
+    nu=0.3
+    k=np.array([1/2-nu/6,1/8+nu/8,-1/4-nu/12,-1/8+3*nu/8,-1/4+nu/12,-1/8-nu/8,nu/6,1/8-3*nu/8])
+    KE = E/(1-nu**2)*np.array([ [k[0], k[1], k[2], k[3], k[4], k[5], k[6], k[7]],
+    [k[1], k[0], k[7], k[6], k[5], k[4], k[3], k[2]],
+    [k[2], k[7], k[0], k[5], k[6], k[3], k[4], k[1]],
+    [k[3], k[6], k[5], k[0], k[7], k[2], k[1], k[4]],
+    [k[4], k[5], k[6], k[7], k[0], k[1], k[2], k[3]],
+    [k[5], k[4], k[3], k[2], k[1], k[0], k[7], k[6]],
+    [k[6], k[3], k[4], k[1], k[2], k[7], k[0], k[5]],
+    [k[7], k[2], k[1], k[4], k[3], k[6], k[5], k[0]] ])
+    # KE 8x8
+    KE = np.array(KE, dtype=np.float32)
+    Ke = torch.from_numpy(KE).to(device)
+    pp = input.contiguous().view(input.shape[0], -1, 1, 1).to(device)
+    # K [bs, 800, 8, 8]
+    K = pp**3*Ke
+    # ???
+    # output[:,:,:,0] = 0
+    ux = output[:,[0]]
+    uy = output[:,[1]]
+
+    unfold = nn.Unfold(kernel_size=(2, 2))
+    # [bs, 4, w*h]
+    uex = unfold(ux)
+    uey = unfold(uy)
+    ue_not = torch.cat([uex, uey], 1).permute([0,2,1])
+    ue = ue_not[:,:,[0,4,1,5,3,7,2,6]].unsqueeze(3)
+
+    # KU
+    KU = torch.matmul(K, ue)
+    tku = KU.permute([0,2,1,3]).contiguous().view(-1,8,20,40)
+
+    result = torch.zeros([ue.shape[0],2,21,41]).to(device)
+
+    result[:,:,:20,:40] = tku[:,[0,1],:,:]
+    result[:,:,:20,1:] += tku[:,[2,3],:,:]
+    result[:,:,1:,:40] += tku[:,[6,7],:,:]
+    result[:,:,1:,1:] += tku[:,[4,5],:,:]
+
+    F = torch.zeros([ue.shape[0],2,21,41]).to(device)
+    F[:,0,:,-1] = 1 
+    F[:,0,0,-1] = 0.5
+    F[:,0,-1,-1] = 0.5
+    return ((result[:,:,:,1:]-F[:,:,:,1:])**2).sum([1,2,3]).mean()
+
+def bc_new(output):
+    ux = output[:, [0]]
+    uy = output[:, [1]]
+    lu = ux[:,:,:,0]**2 + uy[:,:,:,0]**2
+    return lu.sum([-1]).mean()
+
+
 def cc1(input, output, output_post, sobel_filter, device):
     E = 1.0
     nu = 0.3
@@ -170,6 +255,8 @@ def cc1(input, output, output_post, sobel_filter, device):
     pp = input.contiguous().view(input.shape[0], -1, 1, 1).to(device)
     # pp = input.permute(0,1,3,2).contiguous().view(input.shape[0], -1, 1, 1).to(device)
     C = pp**3*C0
+    
+    
 
     # duxdx = sobel_filter.grad_h(output[:, [0]])
     # duxdy = sobel_filter.grad_v(output[:, [0]])
@@ -300,6 +387,19 @@ def conv_constitutive_constraint_nonlinear_exp(input, output, sobel_filter):
         + (output[:, [2]] - sigma_v) ** 2).mean()
 
 
+def cc2new(output, sobel_filter):
+    sx = output[:, [2]]
+    sy = output[:, [3]]
+    sxy = output[:, [4]]
+    dsxdx = sx[:,:,:20,1:]-sx[:,:,:20,:40]
+    # dsxdy = sx[:,:,1:,:40]-sx[:,:,:20,:40]
+    dsydy = sy[:,:,1:,:40]-sy[:,:,:20,:40]
+    dsxydx = sxy[:,:,:20,1:]-sxy[:,:,:20,:40]
+    dsxydy = sxy[:,:,1:,:40]-sxy[:,:,:20,:40]
+    ds = torch.cat([dsxdx+dsxydy, dsydy+dsxydx],1)
+    return (ds ** 2).sum([1,2,3]).mean()
+
+
 # !!!!!!!!!!!!
 def cc2(output, sobel_filter):
     dsxdx = sobel_filter.grad_h(output[:, [2]])
@@ -309,7 +409,8 @@ def cc2(output, sobel_filter):
 
     ds = torch.cat([dsxdx+dsxydy, dsydy+dsxydx],1)
 #     return (ds ** 2).mean()
-    return (ds ** 2).sum([1,2,3]).mean()
+    #return (ds ** 2).sum([1,2,3]).mean()
+    return (ds ** 2).sum([2,3]).mean()
 
 
 # !!!!!!!!!!!!

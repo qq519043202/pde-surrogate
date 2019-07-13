@@ -8,6 +8,7 @@ def mkdir(path):
         os.makedirs(path)
 
 def mkdirs(*paths):
+    # print(paths)
     if isinstance(paths, list) or isinstance(paths, tuple):
         for path in paths:
             mkdir(path)
